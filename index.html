@@ -178,6 +178,48 @@
 
 <div id="log"></div>
 
+<!-- ★ 진단용. 일부러 type="module"이 아니다.
+     모듈이 통째로 죽으면 그 안의 코드는 한 줄도 돌지 않는다. 버튼 연결도 모듈 안에
+     있으므로, 그때 화면은 "눌러도 아무 일 없는 페이지"가 된다 — 오류 한 줄 없이.
+     그래서 무엇이 터졌는지 말해 줄 입을 하나 모듈 바깥에 둔다. -->
+<script>
+(function () {
+  function banner(msg, tone) {
+    var d = document.getElementById('bootErr');
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'bootErr';
+      d.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 12px;' +
+        'font:13px/1.5 system-ui,sans-serif;white-space:pre-wrap;word-break:break-all;' +
+        'background:#7f1d1d;color:#fff;max-height:55vh;overflow:auto';
+      if (document.body) document.body.appendChild(d);
+      else document.addEventListener('DOMContentLoaded', function () { document.body.appendChild(d); });
+    }
+    if (tone) d.style.background = tone;
+    d.textContent += msg + '\n';
+  }
+  window.__bkBanner = banner;
+
+  window.addEventListener('error', function (e) {
+    banner('❌ ' + (e.message || '오류') + '\n    ' + (e.filename || '') + ' : ' + (e.lineno || '') + '행');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    var r = e.reason;
+    banner('❌ 처리되지 않은 실패: ' + ((r && (r.message || r)) || ''));
+  });
+
+  // 모듈이 끝까지 갔으면 __bkReady를 켠다. 3초 뒤에도 안 켜져 있으면 중간에 죽은 것이다.
+  setTimeout(function () {
+    if (!window.__bkReady) {
+      banner('⚠ 스크립트가 끝까지 실행되지 않았습니다. 버튼이 안 먹는 이유가 이것입니다.');
+      banner('기기: ' + navigator.userAgent, '#78350f');
+      banner('보안 컨텍스트: ' + window.isSecureContext +
+             '  ·  마이크 장치 목록: ' + (navigator.mediaDevices ? '있음' : '없음'));
+    }
+  }, 3000);
+})();
+</script>
+
 <script type="module">
 import { detectPitch, SR, WIN, RMS_GATE, MIN_F, toMidi, median } from './pitch.js';
 import { buildReference } from './intonation.js';
@@ -775,6 +817,19 @@ fit();
 rebuild();
 setupVoices();
 log('준비됨. 보안 컨텍스트: ' + isSecureContext + ' · ' + location.origin);
+
+// 여기까지 왔다는 것은 버튼 연결까지 전부 끝났다는 뜻이다. 바깥 진단이 이 깃발을 본다.
+window.__bkReady = true;
+
+// 기기마다 다른 것들을 적어 둔다. 폰에서 안 될 때 이 두 줄이 원인을 거의 가른다.
+log('기기: ' + navigator.userAgent);
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  log('이 브라우저는 마이크 자체를 내주지 않는다(navigator.mediaDevices 없음). ' +
+      '카카오톡·인스타 같은 앱 안의 브라우저가 흔히 그렇다. ' +
+      '크롬이나 사파리로 직접 열어야 한다.', true);
+} else {
+  log('마이크 장치 접근: 가능');
+}
 
 // 바깥(개발자 도구·자동 확인)에서 상태를 읽고 한 프레임씩 돌릴 수 있게 열어 둔다.
 window.__bk = {
