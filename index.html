@@ -700,17 +700,26 @@ async function listen(opt) {
     const rate = parseFloat($('rate').value) || 1;
     const { boundaries, duration } = await speak(text, { voice: opt.voice, pitch: opt.pitch, rate: rate });
 
-    // ★ 느리게 들었다고 막대까지 늘어나면 안 된다.
-    //   retimeFromTTS는 "방금 들은 박자"로 막대 길이를 다시 맞춘다. 0.5배로 들으면
-    //   실제 걸린 시간이 두 배라, 그대로 넘기면 막대가 두 배로 늘어난다. 그러면
-    //   정상 속도로 읽는 순간 기준이 어긋난다 — 느리게 들을수록 더 틀리게 된다.
-    //   그래서 1배였다면 얼마였을지로 되돌려서 넘긴다(실제시간 × 배속).
-    const back = (ms) => ms * rate;
-    retimeFromTTS(boundaries.map((b) => ({ charIndex: b.charIndex, elapsed: back(b.elapsed) })), back(duration));
+    // ★ 막대 길이는 1배로 들었을 때만 다시 맞춘다.
+    //
+    //   retimeFromTTS는 "방금 들은 박자"를 막대에 새긴다. 느리게 들은 박자를 새기면
+    //   정상 속도로 읽는 순간 기준이 통째로 어긋난다 — 느리게 들을수록 더 틀리게 된다.
+    //
+    //   처음엔 "실제시간 × 배속"으로 1배 길이를 되돌려 넘겼다. 그건 못 쓴다.
+    //   음성 엔진이 요청한 배속을 따르지 않는 일이 흔하기 때문이다.
+    //   측정(Heami, Edge): 3배를 요청했는데 2899ms — 1배(약 2571ms)와 거의 같았다.
+    //   따르지도 않은 배속으로 환산하면 8697ms라는 엉터리가 나온다. 더 망가진다.
+    //
+    //   그래서 아예 건드리지 않는다. 박자를 정하는 건 1배 재생뿐이다.
+    if (rate === 1) {
+      retimeFromTTS(boundaries, duration);
+    } else {
+      log('배속으로 들을 때는 막대 길이를 건드리지 않는다. 박자를 맞추려면 1배로 한 번 들으면 된다.');
+    }
 
-    log('읽기 끝: ' + opt.label.replace(/^\S+\s/, '') + ' · ' + rate + '배 · 실제 ' +
-        Math.round(duration) + 'ms (1배 환산 ' + Math.round(back(duration)) + 'ms) · 어절 경계 ' + boundaries.length + '개');
-    if (rate >= 2) log('2배 이상은 음성 엔진이 요청을 무시하거나 소리를 뭉개는 일이 흔하다. 실제 시간이 줄지 않았다면 그 경우다.');
+    log('읽기 끝: ' + opt.label.replace(/^\S+\s/, '') + ' · ' + rate + '배 · ' +
+        Math.round(duration) + 'ms · 어절 경계 ' + boundaries.length + '개');
+    if (rate >= 2) log('2배 이상은 음성 엔진이 요청을 무시하거나 소리를 뭉개는 일이 흔하다. 시간이 줄지 않았다면 그 경우다.');
   } catch (e) {
     log('읽어 주지 못했다: ' + e.message, true);
   } finally {
