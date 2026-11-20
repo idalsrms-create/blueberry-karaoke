@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>블루베리 노래방</title>
+<style>
+  :root{
+    --bg:#0a0914; --panel:#15132166; --line:#2a2740;
+    --ink:#f3f1ff; --dim:#9a93b8;
+    --berry:#8b5cf6; --berry-2:#c084fc;
+    --cyan:#67e8f9;           /* 기준 막대 — 노래방 기계의 그 하늘색 */
+    --good:#34d399; --mid:#fbbf24; --bad:#fb7185;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1100px 600px at 50% -15%, #1d1836 0%, var(--bg) 60%);
+    color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; gap:12px; padding:16px 16px 20px;
+  }
+  header{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+  h1{font-size:18px; margin:0; letter-spacing:-.02em}
+  h1 b{color:var(--berry-2)}
+  .sub{color:var(--dim); font-size:12.5px}
+
+  /* ── 1. 문장 입력 줄 ── */
+  .bar{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+  input[type=text]{
+    flex:1; min-width:240px; font:inherit; font-size:16px; color:var(--ink);
+    background:#ffffff0e; border:1px solid var(--line); border-radius:12px; padding:11px 14px;
+  }
+  input[type=text]:focus{outline:2px solid var(--berry); outline-offset:-1px}
+  button{
+    font:inherit; font-weight:700; color:#fff; cursor:pointer; white-space:nowrap;
+    background:linear-gradient(180deg,var(--berry-2),var(--berry));
+    border:0; border-radius:999px; padding:11px 20px;
+  }
+  button.ghost{background:#ffffff14; border:1px solid var(--line); font-weight:600}
+  button:disabled{opacity:.35; cursor:default}
+  select{
+    font:inherit; color:var(--ink); background:#ffffff0e;
+    border:1px solid var(--line); border-radius:999px; padding:10px 12px;
+  }
+
+  /* ── 2. 무대 ── */
+  .stage{
+    position:relative; border:1px solid var(--line); border-radius:16px;
+    background:var(--panel); overflow:hidden; flex:1; min-height:300px;
+  }
+  canvas{display:block; width:100%; height:100%}
+
+  /* 판정 문구 — 사진의 PERFECT 자리 */
+  #verdict{
+    position:absolute; left:18px; top:50%; transform:translateY(-50%);
+    font-size:40px; font-weight:900; letter-spacing:-.03em; font-style:italic;
+    pointer-events:none; opacity:0; transition:opacity .12s;
+    text-shadow:0 0 24px currentColor, 0 3px 10px #000a;
+  }
+  #count{
+    position:absolute; inset:0; display:grid; place-items:center;
+    font-size:90px; font-weight:900; color:var(--berry-2); pointer-events:none;
+    text-shadow:0 0 40px #8b5cf688;
+  }
+  #hint{
+    position:absolute; inset:0; display:grid; place-items:center; text-align:center;
+    color:var(--dim); font-size:14px; line-height:1.9; padding:20px; pointer-events:none;
+  }
+  .meta{
+    position:absolute; right:12px; top:10px; text-align:right;
+    font-size:11.5px; color:var(--dim); line-height:1.6; pointer-events:none;
+  }
+
+  /* ── 3. 아래 큰 문장 — 사진처럼 ── */
+  .lyric{
+    font-size:clamp(22px,4.4vw,40px); font-weight:800; letter-spacing:-.02em;
+    text-align:center; min-height:1.4em; line-height:1.4;
+  }
+  .lyric span{transition:color .1s, text-shadow .1s}
+  .lyric .now{color:var(--cyan); text-shadow:0 0 18px #67e8f9aa}
+  .lyric .done{color:var(--dim)}
+
+  /* ── 4. 결과 ── */
+  #result{
+    display:none; border:1px solid var(--line); border-radius:14px;
+    background:#ffffff08; padding:14px 16px;
+  }
+  #result.on{display:block}
+  .scores{display:flex; gap:24px; flex-wrap:wrap; margin-bottom:10px}
+  .scores div b{display:block; font-size:26px; font-weight:800; line-height:1.2}
+  .scores div span{font-size:12px; color:var(--dim)}
+  #tips{margin:2px 0 12px}
+  #tips div{
+    font-size:14px; line-height:1.7; color:var(--ink);
+    background:#8b5cf61f; border-left:3px solid var(--berry);
+    border-radius:0 8px 8px 0; padding:7px 12px; margin-bottom:5px;
+  }
+  #tips b{color:var(--berry-2)}
+  .sylrow{display:flex; gap:4px; flex-wrap:wrap}
+  .syl{
+    min-width:34px; text-align:center; border-radius:8px; padding:5px 4px;
+    font-size:13px; font-weight:700; background:#ffffff0d;
+  }
+  .syl small{display:block; font-size:10px; font-weight:500; opacity:.8}
+
+  #log{
+    font:11.5px/1.6 ui-monospace,Consolas,monospace; color:var(--dim);
+    background:#00000040; border:1px solid var(--line); border-radius:10px;
+    padding:8px 11px; white-space:pre-wrap; max-height:84px; overflow:auto;
+  }
+  .bad{color:#fca5a5}
+  .warn{
+    font-size:12px; color:#fcd34d; background:#78350f33;
+    border:1px solid #92400e66; border-radius:10px; padding:8px 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>블루베리 <b>노래방</b></h1>
+  <span class="sub">서울말 억양을 눈으로 보며 익히기 — 사투리를 고치는 게 아니라 <b style="color:var(--berry-2)">하나를 더 익히는</b> 연습입니다</span>
+</header>
+
+<div class="warn">
+  ⚠️ 막대의 <b>높낮이</b>는 규칙으로 만든 <b>임시 기준</b>이고, <b>박자</b>는 방금 들려준 음성에서 받아온 것입니다.
+  아직 <b>검증된 정답이 아닙니다</b> — 기준 목소리가 정말 서울 발음인지도 확인 전입니다(DESIGN.md 3.7장).
+  화면 구성과 채점 방식을 먼저 맞춰 보는 단계입니다.
+</div>
+
+<div class="bar">
+  <input type="text" id="sentence" value="서운한 일들만 손꼽을까요"
+         placeholder="연습할 문장을 적으세요" autocomplete="off">
+  <select id="source">
+    <option value="mic">🎤 마이크</option>
+    <option value="fake">🧪 시험용 소리(마이크 없이)</option>
+  </select>
+  <button id="btnStart">시작</button>
+  <button id="btnStop" class="ghost" disabled>■ 정지</button>
+</div>
+
+<!-- 먼저 듣고 → 따라 읽기. 억양은 눈보다 귀로 더 빨리 들어온다. -->
+<div class="bar" id="listenRow">
+  <span class="sub">먼저 들어 보기</span>
+  <span id="voiceBtns"></span>
+  <span class="sub" id="voiceInfo"></span>
+</div>
+
+<div class="stage">
+  <canvas id="cv"></canvas>
+  <div id="verdict"></div>
+  <div id="count"></div>
+  <div id="hint">문장을 적고 먼저 <b>들어 본 뒤</b> <b>시작</b>을 누르세요.<br>하늘색 막대를 따라 소리 내어 읽으면 내 목소리가 그 위에 겹쳐 그려집니다.</div>
+  <div class="meta" id="meta"></div>
+</div>
+
+<div class="lyric" id="lyric"></div>
+
+<div id="result">
+  <div class="scores">
+    <div><b id="sShape">—</b><span>모양 — 오르내림이 서울말과 같은가</span></div>
+    <div><b id="sRange">—</b><span>폭 — 기복의 크기 (1에 가까울수록 비슷)</span></div>
+    <div><b id="sCover">—</b><span>겹친 비율 — 낮으면 점수를 믿지 마세요</span></div>
+  </div>
+  <div id="tips"></div>
+  <div class="sylrow" id="sylrow"></div>
+</div>
+
+<div id="log"></div>
+
+<script type="module">
+import { detectPitch, SR, WIN, RMS_GATE, toMidi, median } from './pitch.js';
+import { buildReference } from './intonation.js';
+import { loadVoices, pickKorean, speak, stopSpeaking, genderOf } from './tts.js';
+
+const $ = (id) => document.getElementById(id);
+const log = (m, bad) => {
+  $('log').insertAdjacentHTML('beforeend',
+    '<div class="' + (bad ? 'bad' : '') + '">[' + new Date().toLocaleTimeString('ko-KR') + '] ' + m + '</div>');
+  $('log').scrollTop = 1e6;
+};
+
+// ───────────────────────────────────────────────────────────────
+// 상태
+//   idle → count(3,2,1) → run → done
+// ───────────────────────────────────────────────────────────────
+let phase = 'idle';
+let ref = { bars: [], total: 0, aps: [], note: '' };
+let ctx = null, analyser = null, stream = null, osc = null, oscGain = null;
+let raf = 0, startedAt = 0, countFrom = 0;
+
+const frame = new Float32Array(WIN);
+const mine = [];      // 내가 낸 소리: {t, st(절대 반음), clarity}
+let liveMedian = 0;   // 진행 중 기준점(대충). 끝나면 전체 중앙값으로 다시 계산한다.
+
+// 반음 차이를 판정으로. 100센트 = 1반음.
+//
+// ★ 말투 원칙: 사투리는 틀린 말이 아니다. 이 앱은 서울말을 "하나 더" 익히는 도구다.
+//   그래서 많이 어긋났을 때 'MISS' 같은 말로 깎아내리지 않는다.
+//   대신 **어느 쪽으로 가면 되는지**를 알려 준다. 그게 깎아내리지도 않고 쓸모도 있다.
+const GRADES = [
+  { max: 1.0, text: 'PERFECT', color: '#67e8f9' },
+  { max: 2.0, text: 'GOOD',    color: '#34d399' },
+  { max: 3.5, text: 'ALMOST',  color: '#fbbf24' },
+];
+function gradeOf(d) {
+  const a = Math.abs(d);
+  for (const g of GRADES) if (a <= g.max) return g;
+  // 내가 기준보다 높았으면 d > 0 → 서울 쪽은 더 낮다
+  return d > 0
+    ? { text: '↓ 더 낮게', color: '#c4b5fd' }
+    : { text: '↑ 더 높게', color: '#c4b5fd' };
+}
+
+// ── 문장 → 막대 ────────────────────────────────────────────────
+function rebuild() {
+  ref = buildReference($('sentence').value);
+  ref.sentence = $('sentence').value;   // 어떤 문장으로 만든 기준인지 기억해 둔다
+  ref.timedBy = 'rule';                 // 'tts'가 되면 막대 길이가 실제 발화 박자다
+
+  // 기준 곡선도 자기 중앙값을 0으로 맞춘다.
+  // 내 곡선만 중앙값으로 맞추고 기준은 날것으로 두면 두 곡선의 높이 기준이 서로 달라져
+  // 모든 음절이 한쪽으로 치우쳐 보인다(실제로 그런 버그가 있었다).
+  // 비교하는 두 곡선은 반드시 같은 방식으로 정규화해야 한다. DESIGN.md 5장.
+  const refBase = median(ref.bars.map((b) => b.st));
+  ref.bars.forEach((b) => { b.rel = b.st - refBase; });
+
+  // 막대가 생기면 안내문을 치운다. 안 그러면 막대 위에 글씨가 겹쳐 보인다.
+  $('hint').style.display = ref.bars.length ? 'none' : 'grid';
+
+  drawLyric(-1);
+  draw();
+  if (ref.aps.length) {
+    log('기준 생성: ' + ref.note + ' · 총 ' + ref.total.toFixed(1) + '초 · 막대 ' + ref.bars.length + '개');
+  }
+}
+
+function drawLyric(curIdx) {
+  // 아래 큰 글씨. 사진처럼 지금 읽을 음절을 밝게.
+  const html = ref.bars.map((b, i) =>
+    '<span class="' + (i === curIdx ? 'now' : i < curIdx ? 'done' : '') + '">' + b.syl + '</span>' +
+    (ref.bars[i + 1] && ref.bars[i + 1].ap !== b.ap ? ' ' : '')
+  ).join('');
+  $('lyric').innerHTML = html || '&nbsp;';
+}
+
+// ── 오디오 ─────────────────────────────────────────────────────
+async function openMic() {
+  stream = await navigator.mediaDevices.getUserMedia({
+    // 억양을 봐야 하므로 자동이득(AGC)은 끈다. 음량이 출렁이면 유성/무성 판단이 흔들린다.
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+  ctx = new AudioContext({ sampleRate: SR });
+  await ctx.resume();
+  return ctx.createMediaStreamSource(stream);
+}
+
+// 마이크 없이 화면·채점을 확인하기 위한 가짜 목소리.
+// 기준 곡선을 따라가되 일부러 조금씩 틀린다(완벽하면 채점이 도는지 알 수 없다).
+// ⚠️ 이건 연습이 아니다. 화면과 채점이 제대로 도는지 보는 용도다.
+async function openFake() {
+  ctx = new AudioContext({ sampleRate: SR });
+  await ctx.resume();
+  osc = ctx.createOscillator();
+  osc.type = 'sawtooth';           // 말소리처럼 배음이 많아야 시험이 된다
+  oscGain = ctx.createGain();
+  oscGain.gain.value = 0.0001;
+  osc.connect(oscGain);
+  osc.start();
+  return oscGain;
+}
+
+function wire(node) {
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = WIN;
+  analyser.smoothingTimeConstant = 0;
+  node.connect(analyser);
+}
+
+async function closeAudio() {
+  cancelAnimationFrame(raf);
+  try { if (osc) osc.stop(); } catch (e) {}
+  osc = null; oscGain = null;
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  if (ctx) { await ctx.close(); ctx = null; }
+  analyser = null;
+}
+
+// ── 시작 / 정지 ────────────────────────────────────────────────
+async function start() {
+  stopSpeaking();           // 읽어 주던 중이면 멈춘다. 겹치면 둘 다 안 들린다.
+  await stop(true);
+  // 막대 길이를 방금 들은 박자에 맞춰 뒀으면 그걸 살린다(문장이 바뀐 게 아니면 다시 만들지 않는다).
+  if (ref.sentence !== $('sentence').value) rebuild();
+  if (!ref.bars.length) { log('문장이 비어 있다.', true); return; }
+
+  const src = $('source').value;
+  try {
+    wire(src === 'mic' ? await openMic() : await openFake());
+  } catch (e) {
+    log('소리 입력을 열지 못했다: ' + e.name + ' — ' + e.message, true);
+    if (src === 'mic') log('Claude의 브라우저 패널에서는 마이크가 막혀 있다. 크롬/엣지에서 열어야 한다. 또는 "시험용 소리"를 고르면 화면은 확인할 수 있다.', true);
+    return;
+  }
+
+  mine.length = 0; liveMedian = 0;
+  $('result').classList.remove('on');
+  $('hint').style.display = 'none';
+  $('btnStop').disabled = false;
+  $('btnStart').disabled = true;
+
+  phase = 'count';
+  countFrom = performance.now();
+  log('입력: ' + (src === 'mic' ? '마이크' : '시험용 소리') + ' · ' + ctx.sampleRate + 'Hz');
+  cancelAnimationFrame(raf);
+  loop();
+}
+
+async function stop(quiet) {
+  phase = 'idle';
+  await closeAudio();
+  $('btnStop').disabled = true;
+  $('btnStart').disabled = false;
+  $('count').textContent = '';
+  $('verdict').style.opacity = 0;
+  if (!quiet) { drawLyric(-1); draw(); }
+}
+
+// ── 루프 ───────────────────────────────────────────────────────
+function loop() { raf = requestAnimationFrame(loop); tick(); }
+
+// 한 프레임 분량의 일. requestAnimationFrame은 창이 가려지면 초당 1회까지 조여지므로
+// 바깥에서 직접 부를 수 있게 따로 빼 뒀다(확인용). DESIGN.md 7장.
+function tick() {
+  if (phase === 'count') {
+    const left = 3 - (performance.now() - countFrom) / 1000;
+    if (left <= 0) {
+      phase = 'run';
+      startedAt = performance.now();
+      $('count').textContent = '';
+    } else {
+      $('count').textContent = Math.ceil(left);
+      draw();
+      return;
+    }
+  }
+  if (phase !== 'run' || !analyser) return;
+
+  const now = (performance.now() - startedAt) / 1000;
+
+  // 가짜 목소리라면 기준을 따라가게 주파수를 바꿔 준다(일부러 조금 틀리게).
+  if (osc) driveFake(now);
+
+  analyser.getFloatTimeDomainData(frame);
+  const r = detectPitch(frame, ctx.sampleRate);
+  if (r.f0) {
+    mine.push({ t: now, st: toMidi(r.f0), clarity: r.clarity });
+    // 진행 중에는 지금까지 모인 것의 중앙값을 기준점으로 쓴다(대충).
+    // 끝나면 전체로 다시 계산한다 — 그게 제대로 된 값이다. DESIGN.md 5장.
+    if (mine.length >= 8) liveMedian = median(mine.map((p) => p.st));
+  }
+
+  // 지금 어느 막대인가
+  const cur = ref.bars.findIndex((b) => now >= b.t0 && now < b.t0 + b.dur);
+  drawLyric(cur);
+  showVerdict(cur, now);
+
+  $('meta').innerHTML = now.toFixed(1) + 's / ' + ref.total.toFixed(1) + 's<br>' +
+    (r.f0 ? r.f0.toFixed(0) + ' Hz' : '—') + '<br>' + mine.length + ' 점';
+
+  draw(now, cur);
+
+  if (now > ref.total + 0.6) finish();
+}
+
+function driveFake(now) {
+  const b = ref.bars.find((x) => now >= x.t0 && now < x.t0 + x.dur);
+  if (!b) { oscGain.gain.value = 0.0001; return; }          // 음절 사이엔 소리 없음
+  oscGain.gain.value = 0.22;
+  // 기준보다 일부러 어긋나게: 느린 흔들림 + 어절마다 다른 치우침
+  const wobble = Math.sin(now * 2.1) * 0.9 + (b.ap % 2 ? 0.8 : -0.5);
+  const st = b.st + wobble;
+  osc.frequency.setTargetAtTime(150 * Math.pow(2, st / 12), ctx.currentTime, 0.02);
+}
+
+// 지나간 막대에 대해 판정 문구를 띄운다
+let lastVerdictBar = -1;
+function showVerdict(cur, now) {
+  const done = cur < 0 ? ref.bars.length - 1 : cur - 1;
+  if (done < 0 || done === lastVerdictBar) return;
+  // 기준점이 아직 안 잡혔으면(소리가 8프레임도 안 모임) 판정하지 않는다.
+  // 이걸 빼먹으면 liveMedian이 0이라 첫 음절이 무조건 MISS로 뜬다.
+  if (!liveMedian) return;
+  const b = ref.bars[done];
+  const d = diffFor(b, liveMedian);
+  if (d === null) return;
+  lastVerdictBar = done;
+  const g = gradeOf(d);
+  const v = $('verdict');
+  v.textContent = g.text;
+  v.style.color = g.color;
+  // 영어 판정은 기울여 쓰면 노래방 느낌이 살지만, 한글 안내문은 기울이면 읽기 나쁘다.
+  const korean = /[가-힣]/.test(g.text);
+  v.style.fontStyle = korean ? 'normal' : 'italic';
+  v.style.fontSize = korean ? '28px' : '40px';
+  v.style.opacity = 1;
+  setTimeout(() => { if (lastVerdictBar === done) v.style.opacity = 0.25; }, 420);
+}
+
+/**
+ * 막대 하나에 대해 (내 높이 − 기준 높이)를 반음으로. 소리가 없었으면 null.
+ * 양쪽 다 자기 중앙값을 0으로 맞춘 뒤에 뺀다 — 절대 음높이는 사람마다 다르므로
+ * 그대로 빼면 남녀 차이가 그대로 점수가 된다. DESIGN.md 5장.
+ */
+function diffFor(b, base) {
+  const inBar = mine.filter((p) => p.t >= b.t0 && p.t < b.t0 + b.dur).map((p) => p.st);
+  if (inBar.length < 2) return null;
+  return (median(inBar) - base) - b.rel;
+}
+
+// ── 끝내고 채점 ────────────────────────────────────────────────
+function finish() {
+  phase = 'done';
+  closeAudio();
+  $('btnStop').disabled = true;
+  $('btnStart').disabled = false;
+  drawLyric(-1);
+
+  // 제대로 된 기준점: 발화 전체의 중앙값. (진행 중 썼던 건 대충이었다)
+  const base = median(mine.map((p) => p.st));
+  const rows = ref.bars.map((b) => ({ b, d: diffFor(b, base) }));
+  const got = rows.filter((r) => r.d !== null);
+
+  const cover = got.length / Math.max(1, rows.length);
+  $('sCover').textContent = Math.round(cover * 100) + '%';
+  $('sCover').style.color = cover < 0.5 ? 'var(--bad)' : 'var(--ink)';
+
+  if (got.length < 3) {
+    $('sShape').textContent = '—';
+    $('sRange').textContent = '—';
+    log('소리가 너무 적게 잡혀 채점할 수 없다. (' + got.length + '개 막대)', true);
+  } else {
+    // 모양: 기준 높이와 내 높이의 상관. 오르내림이 같은가.
+    const X = got.map((r) => r.b.rel);
+    const Y = got.map((r) => r.b.rel + r.d);
+    const rr = pearson(X, Y);
+    $('sShape').textContent = isFinite(rr) ? Math.round(Math.max(0, rr) * 100) + '점' : '—';
+    $('sShape').style.color = rr > 0.7 ? 'var(--good)' : rr > 0.4 ? 'var(--mid)' : 'var(--bad)';
+
+    // 폭: 기복의 크기 비. 1.0에 가까울수록 좋다.
+    // 다른 체계를 이미 익힌 사람에게 흔한 어긋남이 "다 밋밋하게" 또는 "너무 출렁"이다.
+    // 모양 점수로는 안 잡히므로 따로 본다.
+    const ratio = std(Y) / (std(X) || 1);
+    $('sRange').textContent = ratio.toFixed(2) + '배';
+    $('sRange').style.color = (ratio > 0.7 && ratio < 1.4) ? 'var(--good)' : 'var(--mid)';
+  }
+
+  renderTips(rows, got);
+
+  $('sylrow').innerHTML = rows.map(({ b, d }) => {
+    if (d === null) return '<div class="syl" style="opacity:.35">' + b.syl + '<small>—</small></div>';
+    const g = gradeOf(d);
+    return '<div class="syl" style="color:' + g.color + '">' + b.syl +
+      '<small>' + (d > 0 ? '+' : '') + d.toFixed(1) + '</small></div>';
+  }).join('');
+  $('result').classList.add('on');
+  log('채점 끝. 겹친 비율 ' + Math.round(cover * 100) + '%, 기준점 ' + base.toFixed(1) + ' 반음');
+}
+
+/**
+ * 어절마다 "어디가 서울말과 달랐는지"를 자리와 방향으로 말해 준다.
+ *
+ * 왜 총점으로 끝내지 않나: 85점을 받아도 다음에 뭘 고쳐야 할지 모른다.
+ * "이 어절에서 끝을 올렸는데 서울에서는 내려요"라야 바로 다시 해 볼 수 있다.
+ *
+ * ★ 말투: "틀렸다"가 아니라 "서울에서는 이렇게 읽어요". 사투리는 틀린 말이 아니다.
+ */
+function renderTips(rows, got) {
+  const tips = [];
+
+  ref.aps.forEach((ap, k) => {
+    const inAp = rows.filter((r) => r.b.ap === k && r.d !== null);
+    if (inAp.length < 2) return;
+    const first = inAp[0], last = inAp[inAp.length - 1];
+
+    // 기준이 그 어절 안에서 올라가는가 내려가는가
+    const refDir = last.b.rel - first.b.rel;
+    const myDir = (last.b.rel + last.d) - (first.b.rel + first.d);
+
+    if (Math.abs(refDir) < 0.8) return;           // 기준이 거의 평평하면 방향을 따질 게 없다
+    if (Math.sign(refDir) === Math.sign(myDir)) return;  // 방향이 같으면 넘어간다
+
+    tips.push('<div>「<b>' + ap.word + '</b>」 — 끝을 ' +
+      (refDir > 0 ? '내리셨는데, 서울에서는 <b>올려요</b>' : '올리셨는데, 서울에서는 <b>내려요</b>') +
+      '.</div>');
+  });
+
+  // 기복의 크기. 다른 체계를 이미 익힌 사람에게 흔히 나타나는 어긋남이라 따로 짚는다.
+  if (got.length >= 3) {
+    const X = got.map((r) => r.b.rel);
+    const Y = got.map((r) => r.b.rel + r.d);
+    const ratio = std(Y) / (std(X) || 1);
+    if (ratio < 0.6) tips.push('<div>전체적으로 <b>평평하게</b> 읽으셨어요. 서울말은 어절 안에서 더 오르내립니다.</div>');
+    else if (ratio > 1.6) tips.push('<div>오르내림이 <b>서울말보다 큽니다.</b> 조금 눕혀서 읽어 보세요.</div>');
+  }
+
+  $('tips').innerHTML = tips.length
+    ? tips.join('')
+    : '<div>어절마다 오르내리는 <b>방향</b>이 서울말과 같았어요.</div>';
+}
+
+const mean = (a) => a.reduce((s, v) => s + v, 0) / a.length;
+const std = (a) => { const m = mean(a); return Math.sqrt(mean(a.map((v) => (v - m) ** 2))); };
+function pearson(x, y) {
+  const mx = mean(x), my = mean(y);
+  let n = 0, dx = 0, dy = 0;
+  for (let i = 0; i < x.length; i++) {
+    n += (x[i] - mx) * (y[i] - my); dx += (x[i] - mx) ** 2; dy += (y[i] - my) ** 2;
+  }
+  return n / Math.sqrt(dx * dy);
+}
+
+// ── 그리기 ─────────────────────────────────────────────────────
+const cv = $('cv'), g = cv.getContext('2d');
+function fit() {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = Math.max(1, r.width * dpr); cv.height = Math.max(1, r.height * dpr);
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+addEventListener('resize', fit);
+
+const PAD = 26;
+const HALF_ST = 9; // 위아래 9반음까지 보여 준다
+
+function draw(now, cur) {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  g.clearRect(0, 0, W, H);
+  if (!ref.bars.length) return;
+
+  const total = ref.total + 0.4;
+  const x = (t) => PAD + (t / total) * (W - PAD * 2);
+  const y = (st) => H / 2 - (st / HALF_ST) * (H / 2 - 54);
+
+  // 반음 눈금
+  for (let s = -8; s <= 8; s += 2) {
+    g.strokeStyle = s === 0 ? '#ffffff26' : '#ffffff0b';
+    g.lineWidth = 1;
+    g.beginPath(); g.moveTo(0, y(s)); g.lineTo(W, y(s)); g.stroke();
+  }
+
+  // ── 기준 막대 (사진의 하늘색 캡슐) ──
+  ref.bars.forEach((b, i) => {
+    const x0 = x(b.t0), x1 = x(b.t0 + b.dur), yy = y(b.rel);
+    const h = 11, r = h / 2;
+    const w = Math.max(h + 1, x1 - x0 - 2);
+
+    // 채점 결과가 있으면 그 색으로 칠한다
+    const d = (phase === 'run' || phase === 'done') && liveMedian ? diffFor(b, liveMedian) : null;
+    const grade = d === null ? null : gradeOf(d);
+
+    g.fillStyle = grade ? grade.color : (i === cur ? '#ffffff' : 'rgba(103,232,249,.55)');
+    g.beginPath();
+    if (g.roundRect) g.roundRect(x0, yy - r, w, h, r);
+    else g.rect(x0, yy - r, w, h);
+    g.fill();
+
+    // 막대 밑 작은 음절 (사진에도 막대마다 작은 글씨가 붙어 있다)
+    g.fillStyle = i === cur ? '#ffffff' : '#ffffff55';
+    g.font = '600 11px "Malgun Gothic",system-ui,sans-serif';
+    g.textAlign = 'center';
+    g.fillText(b.syl, x0 + w / 2, yy + 24);
+  });
+
+  // ── 내 목소리 곡선 ──
+  if (mine.length > 1 && liveMedian) {
+    g.strokeStyle = '#c084fc'; g.lineWidth = 3;
+    g.lineCap = 'round'; g.lineJoin = 'round';
+    g.beginPath();
+    let pen = false;
+    for (let i = 0; i < mine.length; i++) {
+      const p = mine[i];
+      // 0.08초 넘게 끊기면 선을 띄운다(무성 구간 — ㅅ·ㅊ·묵음엔 음높이가 아예 없다)
+      if (pen && p.t - mine[i - 1].t > 0.08) pen = false;
+      const px = x(p.t), py = y(p.st - liveMedian);
+      if (pen) g.lineTo(px, py); else { g.moveTo(px, py); pen = true; }
+    }
+    g.stroke();
+  }
+
+  // ── 재생 커서 (사진의 동그란 표식) ──
+  if (phase === 'run' && now != null) {
+    const cx = x(now);
+    g.strokeStyle = '#ffffff44'; g.lineWidth = 1.5;
+    g.beginPath(); g.moveTo(cx, 10); g.lineTo(cx, H - 10); g.stroke();
+
+    const b = cur >= 0 ? ref.bars[cur] : null;
+    if (b) {
+      const cy = y(b.rel);
+      g.fillStyle = '#fff';
+      g.beginPath(); g.arc(cx, cy, 8, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#8b5cf6';
+      g.beginPath(); g.arc(cx, cy, 4, 0, Math.PI * 2); g.fill();
+    }
+    // 내가 지금 낸 높이도 커서 자리에 같이
+    const lastMine = mine[mine.length - 1];
+    if (lastMine && liveMedian && now - lastMine.t < 0.1) {
+      g.fillStyle = '#c084fc';
+      g.beginPath(); g.arc(cx, y(lastMine.st - liveMedian), 5, 0, Math.PI * 2); g.fill();
+    }
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// 듣기 — 먼저 들려주고 나서 읽게 한다
+// ───────────────────────────────────────────────────────────────
+let koVoices = { all: [], male: [], female: [], unknown: [] };
+let speaking = false;
+
+async function setupVoices() {
+  const voices = await loadVoices();
+  koVoices = pickKorean(voices);
+  const btns = $('voiceBtns');
+
+  if (!koVoices.all.length) {
+    btns.innerHTML = '';
+    $('voiceInfo').innerHTML = '<span style="color:#fca5a5">이 브라우저에 한국어 음성이 없습니다.</span>';
+    log('한국어 TTS 음성이 하나도 없다. 읽어 주기를 쓸 수 없다.', true);
+    return;
+  }
+
+  // 실제로 있는 목소리만 버튼으로 만든다.
+  // 없는 성별을 있는 것처럼 띄우지 않는다 — 눌러 봤자 같은 목소리가 나오면 속은 기분이 된다.
+  const list = [];
+  if (koVoices.female.length) list.push({ label: '👩 여성', voice: koVoices.female[0], pitch: 1 });
+  if (koVoices.male.length) list.push({ label: '👨 남성', voice: koVoices.male[0], pitch: 1 });
+  koVoices.unknown.forEach((v) => list.push({ label: '🔊 ' + v.name.replace(/^Microsoft /, ''), voice: v, pitch: 1 }));
+
+  // 한쪽 성별밖에 없으면, 같은 음성을 낮춰 주는 버튼을 하나 더 둔다.
+  // ⚠️ 이건 "남성 목소리"가 아니라 "그 목소리를 낮춘 것"이다. 라벨에 그대로 쓴다.
+  const onlyOneGender = !(koVoices.female.length && koVoices.male.length);
+  if (onlyOneGender && koVoices.all.length) {
+    list.push({ label: '🔉 낮은 목소리', voice: list[0].voice, pitch: 0.4, fake: true });
+  }
+
+  btns.innerHTML = list.map((o, i) =>
+    '<button class="ghost" data-v="' + i + '" style="margin-right:6px">' + o.label + '</button>').join('');
+  [...btns.querySelectorAll('button')].forEach((b) => {
+    b.onclick = () => listen(list[+b.dataset.v]);
+  });
+
+  // 이 컴퓨터에 뭐가 있는지 숨기지 않고 그대로 보여 준다.
+  const names = koVoices.all.map((v) => v.name.replace(/^Microsoft /, '') + '(' +
+    ({ male: '남', female: '여', unknown: '성별 모름' })[genderOf(v)] + ')').join(', ');
+  $('voiceInfo').innerHTML = '이 컴퓨터의 한국어 음성: ' + names +
+    (onlyOneGender ? ' · <span style="color:#fcd34d">한쪽 성별만 있습니다. "낮은 목소리"는 같은 음성을 내린 것이지 남성 음성이 아닙니다.</span>' : '');
+  log('한국어 음성 ' + koVoices.all.length + '개: ' + names);
+}
+
+async function listen(opt) {
+  if (speaking) { stopSpeaking(); speaking = false; return; }
+  const text = $('sentence').value.trim();
+  if (!text) return;
+  speaking = true;
+  $('voiceBtns').querySelectorAll('button').forEach((b) => (b.disabled = true));
+  try {
+    const { boundaries, duration } = await speak(text, { voice: opt.voice, pitch: opt.pitch });
+    log('읽기 끝: ' + opt.label.replace(/^\S+\s/, '') + ' · ' + Math.round(duration) + 'ms · 어절 경계 ' + boundaries.length + '개');
+    retimeFromTTS(boundaries, duration);
+  } catch (e) {
+    log('읽어 주지 못했다: ' + e.message, true);
+  } finally {
+    speaking = false;
+    $('voiceBtns').querySelectorAll('button').forEach((b) => (b.disabled = false));
+  }
+}
+
+/**
+ * TTS가 알려 준 어절 시작 시각으로 막대 길이를 다시 잡는다.
+ *
+ * 왜 이걸 하나: speechSynthesis는 소리를 안 주지만 **박자는 준다**(onboundary).
+ * 그래서 "높낮이는 규칙, 길이는 실제 발화" 라는 조합이 된다.
+ * 규칙으로 찍은 균등 길이보다 훨씬 자연스럽고, 방금 들은 것과 박자가 맞으니 따라 읽기도 쉽다.
+ *
+ * 단어 경계 이벤트는 명세상 **선택 사항**이라 안 오는 브라우저도 있다.
+ * 그때는 아무것도 하지 않고 규칙 길이를 그대로 쓴다(조용히 망가지지 않게).
+ */
+function retimeFromTTS(boundaries, durationMs) {
+  if (boundaries.length !== ref.aps.length) {
+    if (boundaries.length) log('어절 경계 ' + boundaries.length + '개 ≠ 어절 ' + ref.aps.length + '개 — 막대 길이는 그대로 둔다.');
+    else log('이 브라우저는 단어 경계를 알려 주지 않는다. 막대 길이는 규칙값 그대로.');
+    return;
+  }
+  const base = boundaries[0].elapsed;          // 첫 어절이 시작된 시각을 0으로
+  const totalSec = (durationMs - base) / 1000;
+
+  ref.aps.forEach((ap, k) => {
+    const from = (boundaries[k].elapsed - base) / 1000;
+    const to = k + 1 < boundaries.length ? (boundaries[k + 1].elapsed - base) / 1000 : totalSec;
+    const bars = ref.bars.filter((b) => b.ap === k);
+    // 어절에 주어진 시간의 85%를 음절들이 나눠 갖고, 나머지는 다음 어절까지의 숨으로 둔다.
+    const span = Math.max(0.12, (to - from) * 0.85);
+    const each = span / bars.length;
+    bars.forEach((b, i) => { b.t0 = from + each * i; b.dur = each; });
+    ap.from = from; ap.to = to;
+  });
+  ref.total = totalSec;
+  ref.timedBy = 'tts';
+  log('막대 길이를 방금 읽은 박자에 맞췄다 (총 ' + totalSec.toFixed(1) + '초).');
+  draw();
+}
+
+// ── 연결 ───────────────────────────────────────────────────────
+$('btnStart').onclick = start;
+$('btnStop').onclick = () => stop();
+// 읽는 중(count·run)만 아니면 문장을 고치는 대로 막대를 다시 그린다.
+// idle일 때만 보면, 한 번 연습하고 난 뒤(done)에 문장을 바꿔도 화면이 그대로여서 헷갈린다.
+$('sentence').oninput = () => { if (phase !== 'run' && phase !== 'count') rebuild(); };
+$('sentence').onkeydown = (e) => { if (e.key === 'Enter') start(); };
+
+fit();
+rebuild();
+setupVoices();
+log('준비됨. 보안 컨텍스트: ' + isSecureContext + ' · ' + location.origin);
+
+// 바깥(개발자 도구·자동 확인)에서 상태를 읽고 한 프레임씩 돌릴 수 있게 열어 둔다.
+window.__bk = {
+  tick: () => tick(),
+  listen: (i) => $('voiceBtns').querySelectorAll('button')[i || 0].click(),
+  voices: () => koVoices,
+  tips: (rows) => renderTips(rows, rows.filter((r) => r.d !== null)),
+  grade: (d) => gradeOf(d),
+  state: () => ({ phase, bars: ref.bars.length, mine: mine.length, note: ref.note, total: ref.total, timedBy: ref.timedBy }),
+  ref: () => ref,
+  skipCount: () => { if (phase === 'count') { phase = 'run'; startedAt = performance.now(); $('count').textContent = ''; } },
+};
+</script>
+</body>
+</html>

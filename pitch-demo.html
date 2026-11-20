@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>블루베리 노래방 · 피치 시연</title>
+<style>
+  /* 노래방 화면 느낌: 어두운 바탕 + 또렷한 색 막대 */
+  :root{
+    --bg:#0b0a14; --panel:#15132170; --line:#2a2740;
+    --ink:#f3f1ff; --dim:#9a93b8;
+    --berry:#8b5cf6;      /* 블루베리 */
+    --berry-2:#c084fc;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 50% -10%, #1b1730 0%, var(--bg) 60%);
+    color:var(--ink);
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+    display:flex; flex-direction:column; gap:14px; padding:18px 16px 24px;
+  }
+  header{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap}
+  h1{font-size:19px; margin:0; letter-spacing:-.02em}
+  h1 b{color:var(--berry-2)}
+  .sub{color:var(--dim); font-size:13px}
+
+  .row{display:flex; gap:10px; flex-wrap:wrap; align-items:center}
+  button{
+    font:inherit; font-weight:600; color:#fff; cursor:pointer;
+    background:linear-gradient(180deg,var(--berry-2),var(--berry));
+    border:0; border-radius:999px; padding:11px 18px;
+  }
+  button.ghost{background:#ffffff14; border:1px solid var(--line)}
+  button:disabled{opacity:.4; cursor:default}
+
+  .stage{
+    position:relative; border:1px solid var(--line); border-radius:16px;
+    background:var(--panel); overflow:hidden; flex:1; min-height:300px;
+  }
+  canvas{display:block; width:100%; height:100%}
+
+  .readout{
+    position:absolute; left:14px; top:12px; display:flex; gap:18px; align-items:flex-end;
+    pointer-events:none; text-shadow:0 2px 10px #000a;
+  }
+  .hz{font-size:34px; font-weight:800; line-height:1; font-variant-numeric:tabular-nums}
+  .hz small{font-size:14px; font-weight:600; color:var(--dim); margin-left:4px}
+  .note{font-size:15px; color:var(--berry-2); font-weight:700}
+  .meta{font-size:12px; color:var(--dim); line-height:1.5}
+
+  #log{
+    font:12px/1.6 ui-monospace,Consolas,monospace; color:var(--dim);
+    background:#00000040; border:1px solid var(--line); border-radius:10px;
+    padding:10px 12px; white-space:pre-wrap; max-height:120px; overflow:auto;
+  }
+  .bad{color:#fca5a5}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>블루베리 <b>노래방</b> · 피치 시연</h1>
+  <span class="sub">마이크 소리에서 음의 높낮이(F0)를 실시간으로 뽑아 그린다</span>
+</header>
+
+<div class="row">
+  <button id="btnMic">🎤 마이크로 시작</button>
+  <button id="btnTone" class="ghost">🔊 테스트 음으로 확인</button>
+  <button id="btnStop" class="ghost" disabled>■ 정지</button>
+  <span class="sub" id="state">대기 중</span>
+</div>
+
+<div class="stage">
+  <canvas id="cv"></canvas>
+  <div class="readout">
+    <div>
+      <div class="hz"><span id="f0">—</span><small>Hz</small></div>
+      <div class="note" id="noteName">&nbsp;</div>
+    </div>
+    <div class="meta" id="meta">—</div>
+  </div>
+</div>
+
+<div id="log"></div>
+
+<script type="module">
+// ───────────────────────────────────────────────────────────────
+// 이 페이지가 증명하려는 것은 딱 하나:
+//   "브라우저만으로, 외부 라이브러리 없이, 말소리의 음 높낮이를 실시간으로 뽑을 수 있다"
+// 억양 기준 표시와 채점은 여기 없다. DESIGN.md 참고.
+// ───────────────────────────────────────────────────────────────
+
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+function log(msg, bad = false) {
+  const t = new Date().toLocaleTimeString('ko-KR');
+  logEl.insertAdjacentHTML('beforeend', '<div class="' + (bad ? 'bad' : '') + '">[' + t + '] ' + msg + '</div>');
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── 1·2. 분석 파라미터와 피치 추출은 pitch.js 한 곳에 모아 뒀다.
+// 연습 화면(index.html)과 이 시연 페이지가 같은 코드를 쓴다. 고칠 곳이 한 군데여야 한다.
+import { detectPitch, SR, WIN, RMS_GATE } from './pitch.js';
+
+// ── 3. 오디오 연결 ────────────────────────────────────────────
+let ctx = null, analyser = null, stream = null, osc = null, lfo = null, raf = 0;
+const frame = new Float32Array(WIN);
+const track = []; // {t, f0, clarity} — 최근 구간만 남긴다
+const SPAN = 8;   // 화면에 보여줄 시간(초)
+
+async function startMic() {
+  await stop();
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        // 억양을 봐야 하므로 자동이득(AGC)은 끈다. 음량이 출렁이면 유성/무성 판단이 흔들린다.
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+      },
+    });
+  } catch (e) {
+    log('마이크를 열지 못했다: ' + e.name + ' — ' + e.message, true);
+    log('권한을 확인하거나, "테스트 음으로 확인"으로 추출 과정만 먼저 검증할 수 있다.', true);
+    return;
+  }
+  ctx = new AudioContext({ sampleRate: SR });
+  await ctx.resume();
+  wire(ctx.createMediaStreamSource(stream), '마이크');
+}
+
+async function startTone() {
+  // 마이크 권한과 무관하게 "추출 → 그리기"가 맞게 도는지 보는 용도.
+  // 220Hz를 중심으로 천천히 오르내리는 소리 = 억양 곡선 흉내.
+  await stop();
+  ctx = new AudioContext({ sampleRate: SR });
+  await ctx.resume();
+  osc = ctx.createOscillator();
+  osc.type = 'sawtooth'; // 말소리처럼 배음이 많은 파형이라야 시험이 된다
+  osc.frequency.value = 220;
+  lfo = ctx.createOscillator();
+  const depth = ctx.createGain();
+  lfo.frequency.value = 0.25; depth.gain.value = 60;
+  lfo.connect(depth); depth.connect(osc.frequency);
+  const g = ctx.createGain(); g.gain.value = 0.25;
+  osc.connect(g);
+  osc.start(); lfo.start();
+  wire(g, '테스트 음 220Hz ± 60Hz');
+}
+
+function wire(node, label) {
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = WIN;
+  analyser.smoothingTimeConstant = 0; // 파형을 그대로 받아야 한다
+  node.connect(analyser);
+  track.length = 0;
+  frames = 0; t0 = performance.now(); // fps는 "입력 연결 시점"부터 센다
+  $('btnStop').disabled = false;
+  $('state').textContent = label + ' · ' + ctx.sampleRate + 'Hz';
+  log('입력 연결: ' + label + '. 실제 샘플레이트 ' + ctx.sampleRate + 'Hz, 윈도 ' + WIN +
+      '샘플(' + (WIN / ctx.sampleRate * 1000).toFixed(0) + 'ms)');
+  cancelAnimationFrame(raf);
+  loop();
+}
+
+async function stop() {
+  cancelAnimationFrame(raf);
+  try { if (osc) osc.stop(); if (lfo) lfo.stop(); } catch (e) {}
+  osc = null; lfo = null;
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  if (ctx) { await ctx.close(); ctx = null; }
+  analyser = null;
+  $('btnStop').disabled = true;
+  $('state').textContent = '대기 중';
+}
+
+// ── 4. 그리기 ─────────────────────────────────────────────────
+const cv = $('cv'), g2 = cv.getContext('2d');
+function fit() {
+  const r = cv.getBoundingClientRect(), dpr = devicePixelRatio || 1;
+  cv.width = Math.max(1, r.width * dpr); cv.height = Math.max(1, r.height * dpr);
+  g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+addEventListener('resize', fit); fit();
+
+const NOTES = ['도', '도♯', '레', '레♯', '미', '파', '파♯', '솔', '솔♯', '라', '라♯', '시'];
+const toMidi = (f) => 69 + 12 * Math.log2(f / 440);
+
+let frames = 0;
+let t0 = performance.now();
+// 디버그용: 바깥(개발자 도구·자동 확인)에서 상태와 함수를 읽을 수 있게 열어 둔다.
+window.__pitch = { last: null, frames: 0, voiced: 0, detect: detectPitch, frame, tick: () => tick() };
+
+function loop() {
+  raf = requestAnimationFrame(loop);
+  tick();
+}
+
+// 한 프레임 분량의 일(소리 읽기 → 피치 추출 → 화면 그리기)을 따로 뺐다.
+// 화면 갱신(requestAnimationFrame)은 창이 가려지면 브라우저가 초당 1회까지 조인다.
+// 그래서 "진짜 도는지" 바깥에서 확인하려면 이 함수를 직접 부를 수 있어야 한다.
+function tick() {
+  if (!analyser) return;
+  analyser.getFloatTimeDomainData(frame);
+  const r = detectPitch(frame, ctx.sampleRate);
+  const now = performance.now() / 1000;
+  track.push({ t: now, f0: r.f0, clarity: r.clarity });
+  while (track.length && now - track[0].t > SPAN) track.shift();
+
+  frames++;
+  window.__pitch.frames = frames;
+  window.__pitch.last = r;
+  if (r.f0) window.__pitch.voiced++;
+
+  if (r.f0) {
+    const m = toMidi(r.f0);
+    $('f0').textContent = r.f0.toFixed(1);
+    $('noteName').textContent = NOTES[((Math.round(m) % 12) + 12) % 12] + ' · ' + Math.round(m);
+  } else {
+    $('f0').textContent = '—';
+    $('noteName').textContent = r.rms >= RMS_GATE ? '무성(자음·잡음)' : '조용함';
+  }
+  if (frames % 15 === 0) {
+    const fps = frames / ((performance.now() - t0) / 1000);
+    $('meta').innerHTML = '세기 ' + (r.rms * 100).toFixed(1) +
+      '<br>또렷함 ' + r.clarity.toFixed(2) + '<br>' + fps.toFixed(0) + ' fps';
+    window.__pitch.fps = fps;
+  }
+  draw();
+}
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  g2.clearRect(0, 0, W, H);
+
+  // 보이는 구간의 중앙값을 기준으로 세로 눈금을 잡는다.
+  // 절대 음높이는 사람마다 다르다. "내 목소리 기준 위아래"로 봐야 억양이 보인다.
+  const voiced = track.filter((p) => p.f0 > 0).map((p) => toMidi(p.f0)).sort((a, b) => a - b);
+  const center = voiced.length ? voiced[voiced.length >> 1] : 60;
+  const HALF = 10; // 위아래 10반음
+  const y = (midi) => H / 2 - ((midi - center) / HALF) * (H / 2 - 24);
+
+  g2.lineWidth = 1;
+  for (let s = -HALF; s <= HALF; s++) {
+    const yy = y(center + s);
+    g2.strokeStyle = (s === 0) ? '#ffffff33' : (Math.abs(s) % 12 === 0 ? '#ffffff22' : '#ffffff0b');
+    g2.beginPath(); g2.moveTo(0, yy); g2.lineTo(W, yy); g2.stroke();
+    if (s % 4 === 0) {
+      g2.fillStyle = '#ffffff33'; g2.font = '11px ui-monospace,monospace';
+      g2.fillText((s > 0 ? '+' : '') + s, W - 26, yy - 3);
+    }
+  }
+
+  if (!track.length) return;
+  const now = track[track.length - 1].t;
+  const x = (t) => W - ((now - t) / SPAN) * W;
+
+  const stroke = (pts) => {
+    g2.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const px = x(pts[i].t), py = y(toMidi(pts[i].f0));
+      if (i) g2.lineTo(px, py); else g2.moveTo(px, py);
+    }
+    g2.stroke();
+  };
+
+  // 유성 구간을 끊어서 굵은 막대로 — 노래방 음표 막대처럼
+  let seg = [];
+  const flush = () => {
+    if (seg.length >= 2) {
+      g2.lineCap = 'round'; g2.lineJoin = 'round';
+      g2.strokeStyle = 'rgba(139,92,246,.35)'; g2.lineWidth = 10; stroke(seg);
+      g2.strokeStyle = '#c084fc'; g2.lineWidth = 3.5; stroke(seg);
+    }
+    seg = [];
+  };
+  for (const p of track) { if (p.f0 > 0) seg.push(p); else flush(); }
+  flush();
+
+  const last = track[track.length - 1];
+  if (last.f0 > 0) {
+    g2.fillStyle = '#fff';
+    g2.beginPath(); g2.arc(x(last.t), y(toMidi(last.f0)), 5, 0, Math.PI * 2); g2.fill();
+  }
+}
+
+$('btnMic').onclick = startMic;
+$('btnTone').onclick = startTone;
+$('btnStop').onclick = stop;
+
+log('준비됨. 보안 컨텍스트: ' + isSecureContext + ', 주소: ' + location.origin);
+if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+  log('이 브라우저에는 getUserMedia가 없다. 마이크를 쓸 수 없다.', true);
+}
+</script>
+</body>
+</html>
