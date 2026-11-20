@@ -697,7 +697,7 @@ async function listen(opt) {
   speaking = true;
   $('voiceBtns').querySelectorAll('button').forEach((b) => (b.disabled = true));
   try {
-    const rate = parseFloat(rate.value) || 1;
+    const rate = parseFloat($('rate').value) || 1;
     const { boundaries, duration } = await speak(text, { voice: opt.voice, pitch: opt.pitch, rate: rate });
 
     // ★ 느리게 들었다고 막대까지 늘어나면 안 된다.
