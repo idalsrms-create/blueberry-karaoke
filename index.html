@@ -144,6 +144,15 @@
 <div class="bar" id="listenRow">
   <span class="sub">먼저 들어 보기</span>
   <span id="voiceBtns"></span>
+  <label class="sub" for="rate" style="margin-left:4px">배속</label>
+  <select id="rate">
+    <option value="0.5">0.5배 (아주 느리게)</option>
+    <option value="0.75">0.75배 (느리게)</option>
+    <option value="1" selected>1배 (보통)</option>
+    <option value="1.5">1.5배</option>
+    <option value="2">2배</option>
+    <option value="3">3배</option>
+  </select>
   <span class="sub" id="voiceInfo"></span>
 </div>
 
@@ -688,9 +697,20 @@ async function listen(opt) {
   speaking = true;
   $('voiceBtns').querySelectorAll('button').forEach((b) => (b.disabled = true));
   try {
-    const { boundaries, duration } = await speak(text, { voice: opt.voice, pitch: opt.pitch });
-    log('읽기 끝: ' + opt.label.replace(/^\S+\s/, '') + ' · ' + Math.round(duration) + 'ms · 어절 경계 ' + boundaries.length + '개');
-    retimeFromTTS(boundaries, duration);
+    const rate = parseFloat(rate.value) || 1;
+    const { boundaries, duration } = await speak(text, { voice: opt.voice, pitch: opt.pitch, rate: rate });
+
+    // ★ 느리게 들었다고 막대까지 늘어나면 안 된다.
+    //   retimeFromTTS는 "방금 들은 박자"로 막대 길이를 다시 맞춘다. 0.5배로 들으면
+    //   실제 걸린 시간이 두 배라, 그대로 넘기면 막대가 두 배로 늘어난다. 그러면
+    //   정상 속도로 읽는 순간 기준이 어긋난다 — 느리게 들을수록 더 틀리게 된다.
+    //   그래서 1배였다면 얼마였을지로 되돌려서 넘긴다(실제시간 × 배속).
+    const back = (ms) => ms * rate;
+    retimeFromTTS(boundaries.map((b) => ({ charIndex: b.charIndex, elapsed: back(b.elapsed) })), back(duration));
+
+    log('읽기 끝: ' + opt.label.replace(/^\S+\s/, '') + ' · ' + rate + '배 · 실제 ' +
+        Math.round(duration) + 'ms (1배 환산 ' + Math.round(back(duration)) + 'ms) · 어절 경계 ' + boundaries.length + '개');
+    if (rate >= 2) log('2배 이상은 음성 엔진이 요청을 무시하거나 소리를 뭉개는 일이 흔하다. 실제 시간이 줄지 않았다면 그 경우다.');
   } catch (e) {
     log('읽어 주지 못했다: ' + e.message, true);
   } finally {
