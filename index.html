@@ -223,7 +223,7 @@
 <script type="module">
 import { detectPitch, SR, WIN, RMS_GATE, MIN_F, toMidi, median } from './pitch.js';
 import { buildReference } from './intonation.js';
-import { loadVoices, pickKorean, speak, stopSpeaking, genderOf } from './tts.js';
+import { loadVoices, pickKorean, speak, stopSpeaking, genderOf, canSpeak } from './tts.js';
 
 const $ = (id) => document.getElementById(id);
 const log = (m, bad) => {
@@ -697,6 +697,16 @@ async function setupVoices() {
   koVoices = pickKorean(voices);
   const btns = $('voiceBtns');
 
+  // 두 경우를 가려서 말한다. "음성이 없다"와 "읽어 주는 기능 자체가 없다"는 다른 이야기고,
+  // 쓰는 사람이 해야 할 일도 다르다(음성 설치 vs 다른 브라우저로 열기).
+  if (!canSpeak) {
+    btns.innerHTML = '';
+    $('voiceInfo').innerHTML = '<span style="color:#fca5a5">이 브라우저는 읽어 주기를 지원하지 않습니다. ' +
+      '크롬이나 사파리로 열면 들을 수 있습니다.</span>';
+    log('이 브라우저에는 speechSynthesis가 없다. 읽어 주기를 쓸 수 없다(연습은 된다).', true);
+    return;
+  }
+
   if (!koVoices.all.length) {
     btns.innerHTML = '';
     $('voiceInfo').innerHTML = '<span style="color:#fca5a5">이 브라우저에 한국어 음성이 없습니다.</span>';
@@ -815,7 +825,9 @@ $('sentence').onkeydown = (e) => { if (e.key === 'Enter') start(); };
 
 fit();
 rebuild();
-setupVoices();
+// 음성 준비가 실패해도 나머지는 그대로 쓸 수 있어야 한다.
+// 잡지 않으면 조용한 promise 거절로 남아 원인을 알 수 없게 된다.
+setupVoices().catch((e) => log('음성 목록을 준비하지 못했다: ' + e.message, true));
 log('준비됨. 보안 컨텍스트: ' + isSecureContext + ' · ' + location.origin);
 
 // 여기까지 왔다는 것은 버튼 연결까지 전부 끝났다는 뜻이다. 바깥 진단이 이 깃발을 본다.
@@ -823,12 +835,25 @@ window.__bkReady = true;
 
 // 기기마다 다른 것들을 적어 둔다. 폰에서 안 될 때 이 두 줄이 원인을 거의 가른다.
 log('기기: ' + navigator.userAgent);
-if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-  log('이 브라우저는 마이크 자체를 내주지 않는다(navigator.mediaDevices 없음). ' +
-      '카카오톡·인스타 같은 앱 안의 브라우저가 흔히 그렇다. ' +
-      '크롬이나 사파리로 직접 열어야 한다.', true);
-} else {
-  log('마이크 장치 접근: 가능');
+const hasMic = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+log(hasMic ? '마이크 장치 접근: 가능' : '마이크 장치 접근: 불가(navigator.mediaDevices 없음)', !hasMic);
+
+// ── 앱 안의 브라우저로 열었을 때 ────────────────────────────────
+//
+// 카카오톡·인스타그램 안에서 링크를 누르면 그 앱이 품은 간이 브라우저가 열린다.
+// 거기엔 마이크도 읽어 주기도 없는 경우가 많다(카카오톡 확인: speechSynthesis 없음).
+// 로그에만 적어 두면 아무도 안 읽는다. 쓸 수 없는 이유와 할 일을 화면 맨 위에 띄운다.
+if (!hasMic || !canSpeak) {
+  const missing = [!hasMic ? '마이크' : null, !canSpeak ? '읽어 주기' : null].filter(Boolean).join('와 ');
+  const bar = document.createElement('div');
+  bar.style.cssText = 'margin:0 0 14px;padding:12px 14px;border-radius:12px;line-height:1.6;' +
+    'background:#422006;border:1px solid #a16207;color:#fde68a;font-size:14px';
+  bar.innerHTML =
+    '<b>이 브라우저에서는 ' + missing + '를 쓸 수 없습니다.</b><br>' +
+    '카카오톡·인스타그램처럼 <b>앱 안에서 열린 브라우저</b>는 마이크를 내주지 않습니다. ' +
+    '화면 오른쪽 위 <b>⋮</b> 또는 <b>⋯</b>를 눌러 <b>“다른 브라우저로 열기”</b>를 고르거나, ' +
+    '주소를 복사해 <b>크롬·사파리</b>에 직접 붙여 넣어 주세요.';
+  document.body.insertBefore(bar, document.body.firstChild);
 }
 
 // 바깥(개발자 도구·자동 확인)에서 상태를 읽고 한 프레임씩 돌릴 수 있게 열어 둔다.
